@@ -1635,19 +1635,55 @@
     }
     return lines;
   }
+  function parsePdfWords(lines){
+    const posSet={n:1,v:1,vt:1,vi:1,adj:1,adv:1,prep:1,conj:1,pron:1,num:1,art:1,phr:1,aux:1,int:1,pl:1,abbr:1,comb:1,modal:1,det:1,u:1,c:1};
+    const words=[];const seen={};
+    const push=function(en,pos,cn){
+      en=(en||'').trim();cn=(cn||'').trim();
+      if(!en||!cn)return;
+      if(!/[\u4e00-\u9fff]/.test(cn))return;
+      if(en.length>45||cn.length>100)return;
+      const key=en.toLowerCase();
+      if(seen[key])return;
+      seen[key]=1;
+      words.push({en:en,pos:pos,cn:cn,rare:'',theme:''});
+    };
+    for(let i=0;i<lines.length;i++){
+      const line=(lines[i]||'').replace(/\s+/g,' ').trim();
+      if(!line)continue;
+      const tokens=line.split(' ');
+      // 形态1：单词(可能含短语/音标) + 词性 + 中文
+      let pi=-1;
+      for(let j=1;j<tokens.length;j++){
+        const t=tokens[j].replace(/[\.\．,，]/g,'').toLowerCase();
+        if(posSet[t]){pi=j;break;}
+      }
+      if(pi>0){
+        const enToks=tokens.slice(0,pi).filter(function(t){return /^[A-Za-z][A-Za-z'’\-]*$/.test(t);});
+        const rest=tokens.slice(pi+1).join(' ');
+        if(enToks.length&&/[\u4e00-\u9fff]/.test(rest)){
+          push(enToks.join(' '),tokens[pi].replace(/[\.\．,，]/g,''),rest);
+          continue;
+        }
+      }
+      // 形态2：单词 + 中文（无词性）
+      let m=line.match(/^([A-Za-z][A-Za-z'’\-]{1,30})\s+([\u4e00-\u9fff][^ ]*(?: [^ ]+){0,12})$/);
+      if(m){push(m[1],'',m[2]);continue;}
+      // 形态3：单词单独一行，下一行是中文释义
+      if(/^[A-Za-z][A-Za-z'’\-]{1,30}$/.test(line)){
+        const nxt=((lines[i+1]||'').replace(/\s+/g,' ').trim());
+        if(/^[\u4e00-\u9fff]/.test(nxt)){push(line,'',nxt);i++;}
+      }
+    }
+    return words;
+  }
   window.importEbookAsBook=async function(name,btn){
     try{
       if(btn){btn.disabled=true;btn.textContent='解析中…';}
       showToast('正在解析 PDF，大文件需耐心等待…');
       const lines=await extractPdfLines(pdfUrl(name));
-      const words=[];
-      lines.forEach(function(line){
-        const m=line.match(/^\s*([A-Za-z][A-Za-z'’\-]{1,30})\s+(n|v|vt|vi|adj|adv|prep|conj|pron|num|art|phr|aux|int|pl|abbr|comb)[\.\．]?\s+(.{1,80})$/);
-        if(!m)return;
-        if(!/[\u4e00-\u9fff]/.test(m[3]))return;
-        words.push({en:m[1],pos:m[2].replace(/[\.\．]/,''),cn:m[3].trim(),rare:'',theme:''});
-      });
-      if(!words.length){showToast('未解析到单词：PDF 需为"单词 词性 中文释义"逐行格式');return;}
+      const words=parsePdfWords(lines);
+      if(!words.length){showToast('未解析到单词：该 PDF 可能是扫描图片版，或排版不是"单词 释义"逐行格式');return;}
       const bname=name.replace(/\.pdf$/i,'');
       const id='eb_'+Date.now();
       state.books.push({id:id,name:'📕 '+bname,words:words});
