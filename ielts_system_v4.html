@@ -501,7 +501,7 @@
   let saveTimer=null, refreshTimer=null, pollTimer=null, gateMode=null;
 
   function dbReady(){ return !!(dbCfg.url&&dbCfg.key); }
-  function cloudReady(){ return dbReady()&&!!sbSession; }
+  function cloudReady(){ return dbReady()&&!!(sbSession&&sbSession.user&&sbSession.user.id); }
   function cloudMeta(){ try{return JSON.parse(localStorage.getItem(META_KEY)||'{}')||{}}catch(e){return{}} }
   function setCloudMeta(patch){ const m=cloudMeta(); Object.assign(m,patch); localStorage.setItem(META_KEY,JSON.stringify(m)); }
 
@@ -572,11 +572,43 @@
     return d;
   }
   async function sbSignUp(email,password){
-    return sbJson(await sbApi('/auth/v1/signup',{method:'POST',token:null,body:{email:email,password:password}}));
+    const back=encodeURIComponent(location.origin+location.pathname);
+    return sbJson(await sbApi('/auth/v1/signup?redirect_to='+back,{method:'POST',token:null,body:{email:email,password:password}}));
   }
   async function sbSignOut(){
     try{ await sbApi('/auth/v1/logout',{method:'POST'}); }catch(e){}
     clearSession();
+  }
+  async function loadUserProfile(){
+    try{
+      const u=await sbJson(await sbApi('/auth/v1/user'));
+      if(u&&u.id){ sbSession.user=u; localStorage.setItem(SESSION_KEY,JSON.stringify(sbSession)); return true; }
+    }catch(e){ console.warn('[supabase] 读取账号信息失败',e); }
+    return false;
+  }
+  /* 邮箱确认链接回到网页时，地址栏会带 #access_token=...，这里接住它，直接变成已登录 */
+  let hashNotice='';
+  function absorbHashSession(){
+    const h=String(location.hash||'').replace(/^#/,'');
+    if(!h) return false;
+    const p=new URLSearchParams(h);
+    if(p.get('error')){
+      hashNotice='邮箱链接已失效，请重新登录，或在 Supabase 里关闭邮箱验证。';
+      history.replaceState(null,'',location.pathname+location.search);
+      return false;
+    }
+    const access=p.get('access_token');
+    if(!access) return false;
+    sbSession={
+      access_token:access,
+      refresh_token:p.get('refresh_token')||'',
+      expires_at:Date.now()+(Number(p.get('expires_in')||3600)*1000),
+      token_type:p.get('token_type')||'bearer',
+      user:null
+    };
+    localStorage.setItem(SESSION_KEY,JSON.stringify(sbSession));
+    history.replaceState(null,'',location.pathname+location.search);
+    return true;
   }
 
   // 上传时剔除内置词书（体积大且能自动重建），只保留进度与自建内容
@@ -1889,11 +1921,21 @@
     state.books.forEach(b=>ensureVocId(b.id));
     localStorage.setItem(KEY,JSON.stringify(state));
     renderAll();
+    const absorbed=absorbHashSession();
+    if(hashNotice){ showToast(hashNotice); hashNotice=''; }
     if(!dbReady()){ setPill('','未连接数据库'); showGate('setup'); return; }
-    if(!sbSession){ setPill('',sbSession?'':'未登录 · 仅本机'); showGate('auth'); return; }
+    if(!sbSession){ setPill('','未登录 · 仅本机'); showGate('auth'); return; }
     setPill('saving','连接中…');
-    const valid=await refreshSession();
-    if(!valid&&!sbSession){ setPill('','登录已过期'); showGate('auth'); return; }
+    if(absorbed){
+      // 邮箱确认链接回来时没有用户资料，先取一次
+      if(!await loadUserProfile()){ clearSession(); setPill('','登录已过期'); showGate('auth'); return; }
+    }else{
+      const valid=await refreshSession();
+      if(!valid&&!sbSession){ setPill('','登录已过期'); showGate('auth'); return; }
+      if(!sbSession.user||!sbSession.user.id){
+        if(!await loadUserProfile()){ clearSession(); setPill('','登录已过期'); showGate('auth'); return; }
+      }
+    }
     hideGate();
     await afterLogin();
   }
