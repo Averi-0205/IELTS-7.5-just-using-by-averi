@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>雅思冲刺系统 v4 · 5.0→7.0+（离线版）</title>
+<title>雅思冲刺系统 v4 · 5.0→7.0+（云端同步版）</title>
 <style>
   * { margin:0; padding:0; box-sizing:border-box; }
   body { font-family:-apple-system,'PingFang SC','Microsoft YaHei',sans-serif; background:#0f172a; color:#e2e8f0; min-height:100vh; }
@@ -141,13 +141,91 @@
   .cam-summary-line .warn { color:#f43f5e; font-weight:700; }
   .import-area textarea { width:100%; background:#0f172a; border:1px solid #334155; border-radius:10px; padding:10px 12px; color:#e2e8f0; font-size:12.5px; font-family:inherit; min-height:90px; resize:vertical; outline:none; }
   .import-area textarea:focus { border-color:#38bdf8; }
+  /* ===== 云同步 / 账户 ===== */
+  .header-right { display:flex; align-items:center; gap:8px; flex-wrap:wrap; justify-content:flex-end; }
+  .sync-pill { display:inline-flex; align-items:center; gap:6px; background:#1e293b; border:1px solid #334155; border-radius:16px; padding:6px 11px; font-size:11.5px; color:#94a3b8; cursor:pointer; white-space:nowrap; }
+  .sync-pill .sdot { width:8px; height:8px; border-radius:50%; background:#64748b; flex-shrink:0; }
+  .sync-pill.ok { color:#86efac; border-color:#166534; } .sync-pill.ok .sdot { background:#22c55e; }
+  .sync-pill.saving { color:#fcd34d; border-color:#92400e; } .sync-pill.saving .sdot { background:#fbbf24; }
+  .sync-pill.err { color:#fda4af; border-color:#9f1239; } .sync-pill.err .sdot { background:#f43f5e; }
+  .gate { position:fixed; inset:0; background:rgba(15,23,42,.95); z-index:200; display:none; align-items:flex-start; justify-content:center; padding:24px 16px; overflow:auto; }
+  .gate.show { display:flex; }
+  .gate-box { width:100%; max-width:420px; background:#1e293b; border:1px solid #334155; border-radius:16px; padding:24px 22px; margin:auto; }
+  .gate-box h2 { font-size:17px; margin-bottom:6px; }
+  .gate-box h2 span { color:#38bdf8; }
+  .gate-sub { font-size:12.5px; color:#94a3b8; line-height:1.6; margin-bottom:16px; }
+  .gate-sec { display:none; }
+  .gate-sec.show { display:block; }
+  .field { margin-bottom:12px; }
+  .field label { display:block; font-size:11.5px; color:#94a3b8; margin-bottom:5px; font-weight:600; }
+  .field input { width:100%; background:#0f172a; border:1px solid #334155; border-radius:10px; padding:10px 12px; color:#e2e8f0; font-size:13.5px; outline:none; }
+  .field input:focus { border-color:#38bdf8; }
+  .gate-btn { width:100%; background:linear-gradient(135deg,#38bdf8,#0ea5e9); border:none; color:#0f172a; padding:12px; border-radius:12px; font-size:14px; font-weight:700; cursor:pointer; margin-bottom:8px; }
+  .gate-btn:disabled { opacity:.55; cursor:default; }
+  .gate-btn.ghost { background:#334155; color:#e2e8f0; }
+  .gate-foot { display:flex; justify-content:space-between; gap:10px; flex-wrap:wrap; margin-top:10px; }
+  .link-btn { font-size:12px; color:#38bdf8; cursor:pointer; }
+  .link-btn.dim { color:#64748b; }
+  .gate-err { font-size:12.5px; color:#fda4af; min-height:16px; line-height:1.5; margin-bottom:8px; }
+  .gate-ok { font-size:12.5px; color:#86efac; line-height:1.5; margin-bottom:8px; }
+  .gate-note { background:#0f172a; border-radius:10px; padding:10px 12px; font-size:11.5px; color:#94a3b8; line-height:1.65; margin-bottom:12px; }
+  .gate-note b { color:#e2e8f0; }
+  .who { font-size:12px; color:#e2e8f0; word-break:break-all; margin-bottom:12px; }
+  @media (max-width:520px){
+    .header { align-items:flex-start; gap:10px; }
+    .header-right { justify-content:flex-end; }
+  }
 </style>
 </head>
 <body>
+<div class="gate" id="authGate">
+  <div class="gate-box">
+    <h2>雅思冲刺系统 <span>云端同步</span></h2>
+    <div class="gate-sub" id="gateSub">登录后，打卡、模考、单词与复盘记录都会保存到你的 Supabase 数据库。</div>
+
+    <div class="gate-sec" id="secSetup">
+      <div class="gate-note">
+        填写 Supabase 项目的连接信息（Dashboard → Project Settings → API）：<br>
+        <b>Project URL</b> 与 <b>anon public</b> key。只需填写一次，会保存在本机浏览器里。
+      </div>
+      <div class="field"><label>Project URL</label><input id="cfgUrl" placeholder="https://xxxxxxxxxxxx.supabase.co" autocomplete="off"></div>
+      <div class="field"><label>anon public key</label><input id="cfgKey" placeholder="eyJhbGciOiJIUzI1NiIsInR5cCI6..." autocomplete="off"></div>
+      <div class="gate-err" id="cfgErr"></div>
+      <button class="gate-btn" id="cfgSave" onclick="saveDbConfig()">保存并继续</button>
+      <div class="gate-foot"><span class="link-btn dim" onclick="useOffline()">暂时跳过，只用本地保存</span></div>
+    </div>
+
+    <div class="gate-sec" id="secAuth">
+      <div class="field"><label>邮箱</label><input id="authEmail" type="email" autocomplete="username" placeholder="you@example.com"></div>
+      <div class="field"><label>密码</label><input id="authPass" type="password" autocomplete="current-password" placeholder="至少 6 位"></div>
+      <div class="gate-err" id="authErr"></div>
+      <button class="gate-btn" id="btnLogin" onclick="doLogin()">登录</button>
+      <button class="gate-btn ghost" id="btnSignup" onclick="doSignup()">注册新账号</button>
+      <div class="gate-foot">
+        <span class="link-btn" onclick="showGate('setup')">数据库设置</span>
+        <span class="link-btn dim" onclick="useOffline()">暂不登录，先离线使用</span>
+      </div>
+    </div>
+
+    <div class="gate-sec" id="secAccount">
+      <div class="who">当前账号：<b id="accEmail">-</b></div>
+      <div class="gate-ok" id="accMsg"></div>
+      <button class="gate-btn" onclick="syncNow()">立即同步</button>
+      <button class="gate-btn ghost" onclick="doLogout()">退出登录</button>
+      <div class="gate-foot">
+        <span class="link-btn" onclick="showGate('setup')">数据库设置</span>
+        <span class="link-btn dim" onclick="hideGate()">关闭</span>
+      </div>
+    </div>
+  </div>
+</div>
 <div class="app">
   <div class="header">
     <h1>雅思冲刺系统 <span>5.0 → 7.0+</span></h1>
-    <div class="streak">🔥 连续 <b id="streakNum">0</b> 天</div>
+    <div class="header-right">
+      <span class="sync-pill" id="syncPill" onclick="openAccount()" title="账户与同步"><span class="sdot"></span><span id="syncText">初始化…</span></span>
+      <div class="streak">🔥 连续 <b id="streakNum">0</b> 天</div>
+    </div>
   </div>
   <div class="goal-banner">
     <div>
@@ -391,6 +469,359 @@
   const today=new Date().toISOString().slice(0,10);
   const yesterday=new Date(Date.now()-864e5).toISOString().slice(0,10);
   const IV=[0,1,2,4,7,15,30];
+
+  /* =========================================================================
+     Supabase 云同步层
+     - 直接调用 Supabase 的 Auth / REST 接口，不依赖任何外部 CDN，断网也能用。
+     - 未配置数据库 / 未登录时：完全等同原版，数据存在浏览器本地。
+     - 已登录时：本地写入 + 自动上传云端；打开页面时按更新时间自动合并。
+     ========================================================================= */
+  const SB_URL_DEFAULT = 'https://bqohcnqwhruljvnfitex.supabase.co';   // Project URL
+  const SB_KEY_DEFAULT = 'sb_publishable_CA7Jk-eVHbyYzbhnvlyuBA_ZTkh1H55';  // Publishable key（公开可用，配合 RLS 安全）
+  const CFG_KEY     = 'ielts_system_db_config';
+  const SESSION_KEY = 'ielts_system_session';
+  const META_KEY    = KEY+'_cloud_meta';
+  const SB_TABLE    = 'ielts_state';
+  const PUSH_DELAY  = 900;
+  const POLL_MS     = 60000;
+
+  let dbCfg={url:'',key:''};
+  try{
+    const c=JSON.parse(localStorage.getItem(CFG_KEY)||'null');
+    if(c&&c.url&&c.key) dbCfg={url:String(c.url).replace(/\/+$/,''),key:String(c.key).trim()};
+  }catch(e){}
+  if(!dbCfg.url&&SB_URL_DEFAULT) dbCfg={url:String(SB_URL_DEFAULT).replace(/\/+$/,''),key:String(SB_KEY_DEFAULT).trim()};
+
+  let sbSession=null;
+  try{
+    const s=JSON.parse(localStorage.getItem(SESSION_KEY)||'null');
+    if(s&&s.access_token) sbSession=s;
+  }catch(e){}
+
+  let saveTimer=null, refreshTimer=null, pollTimer=null, gateMode=null;
+
+  function dbReady(){ return !!(dbCfg.url&&dbCfg.key); }
+  function cloudReady(){ return dbReady()&&!!sbSession; }
+  function cloudMeta(){ try{return JSON.parse(localStorage.getItem(META_KEY)||'{}')||{}}catch(e){return{}} }
+  function setCloudMeta(patch){ const m=cloudMeta(); Object.assign(m,patch); localStorage.setItem(META_KEY,JSON.stringify(m)); }
+
+  function setPill(cls,text){
+    const p=document.getElementById('syncPill');
+    const t=document.getElementById('syncText');
+    if(t) t.textContent=text;
+    if(p){
+      p.className='sync-pill'+(cls?' '+cls:'');
+      p.title=cloudReady()?('已登录 '+((sbSession.user&&sbSession.user.email)||'')):'点击登录 / 设置数据库';
+    }
+  }
+
+  function sbApi(path,opt){
+    opt=opt||{};
+    const headers={'apikey':dbCfg.key,'Content-Type':'application/json'};
+    const token=opt.token!==undefined?opt.token:(sbSession&&sbSession.access_token);
+    if(token) headers['Authorization']='Bearer '+token;
+    if(opt.headers) Object.assign(headers,opt.headers);
+    const init={method:opt.method||'GET',headers};
+    if(opt.body!==undefined) init.body=JSON.stringify(opt.body);
+    return fetch(dbCfg.url+path,init);
+  }
+  async function sbJson(res){
+    const raw=await res.text();
+    let data=null;
+    try{ data=raw?JSON.parse(raw):null; }catch(e){ data=raw; }
+    if(!res.ok){
+      const msg=(data&&(data.error_description||data.msg||data.message||data.error||data.hint))||('HTTP '+res.status);
+      const err=new Error(typeof msg==='string'?msg:JSON.stringify(msg));
+      err.status=res.status; err.data=data;
+      throw err;
+    }
+    return data;
+  }
+  function storeSession(d){
+    sbSession={
+      access_token:d.access_token,
+      refresh_token:d.refresh_token,
+      expires_at:Date.now()+((d.expires_in||3600)*1000),
+      token_type:d.token_type||'bearer',
+      user:d.user||(sbSession&&sbSession.user)||null
+    };
+    localStorage.setItem(SESSION_KEY,JSON.stringify(sbSession));
+    scheduleRefresh();
+  }
+  function clearSession(){ sbSession=null; localStorage.removeItem(SESSION_KEY); clearTimeout(refreshTimer); }
+  function scheduleRefresh(){
+    clearTimeout(refreshTimer);
+    if(!sbSession) return;
+    const delay=Math.max(30000,sbSession.expires_at-Date.now()-120000);
+    refreshTimer=setTimeout(()=>{ refreshSession(); },delay);
+  }
+  async function refreshSession(){
+    if(!sbSession||!sbSession.refresh_token) return false;
+    try{
+      const d=await sbJson(await sbApi('/auth/v1/token?grant_type=refresh_token',{method:'POST',token:null,body:{refresh_token:sbSession.refresh_token}}));
+      storeSession(d);
+      return true;
+    }catch(e){
+      if(e.status===400||e.status===401||e.status===422){ clearSession(); }
+      return false;
+    }
+  }
+  async function sbSignIn(email,password){
+    const d=await sbJson(await sbApi('/auth/v1/token?grant_type=password',{method:'POST',token:null,body:{email:email,password:password}}));
+    storeSession(d);
+    return d;
+  }
+  async function sbSignUp(email,password){
+    return sbJson(await sbApi('/auth/v1/signup',{method:'POST',token:null,body:{email:email,password:password}}));
+  }
+  async function sbSignOut(){
+    try{ await sbApi('/auth/v1/logout',{method:'POST'}); }catch(e){}
+    clearSession();
+  }
+
+  // 上传时剔除内置词书（体积大且能自动重建），只保留进度与自建内容
+  function localHasData(){
+    const days=state.days||{};
+    for(const k in days){
+      const d=days[k];
+      if(!d) continue;
+      if((d.doneCount||0)>0||(d.totalMins||0)>0) return true;
+      if((d.tasks||[]).some(t=>t&&t.done)) return true;
+    }
+    if((state.records||[]).length||(state.mocks||[]).length||(state.reviews||[]).length||(state.sentences||[]).length) return true;
+    if((state.essays||0)>0) return true;
+    if((state.weak||[]).some(w=>w&&w.log&&w.log.length)) return true;
+    const camb=state.camb||{};
+    for(const k in camb){ const r=camb[k]; if(r&&(r.date||r.dur||r.score||r.note)) return true; }
+    const voc=state.voc2||{};
+    for(const b in voc){
+      const prog=voc[b]||{};
+      for(const i in prog){ const p=prog[i]; if(p&&((p.box||0)>0||(p.right||0)>0||(p.wrong||0)>0)) return true; }
+    }
+    const builtinIds=BUILTIN.map(b=>b.id);
+    if((state.books||[]).some(b=>b&&builtinIds.indexOf(b.id)<0)) return true;
+    return false;
+  }
+
+  function cloudSnapshot(){
+    const builtinIds=BUILTIN.map(b=>b.id);
+    const out=JSON.parse(JSON.stringify(state));
+    out.books=(out.books||[]).filter(b=>builtinIds.indexOf(b.id)<0);
+    // 未被学习过的单词进度属于默认值，不需要上传（打开页面时会自动重建）
+    Object.keys(out.voc2||{}).forEach(bid=>{
+      const prog=out.voc2[bid];
+      if(!prog||typeof prog!=='object'){ delete out.voc2[bid]; return; }
+      Object.keys(prog).forEach(wi=>{
+        const p=prog[wi];
+        if(!p||((p.box||0)===0&&(p.right||0)===0&&(p.wrong||0)===0)) delete prog[wi];
+      });
+    });
+    return out;
+  }
+
+  async function pushState(){
+    if(!cloudReady()) return false;
+    setPill('saving','同步中…');
+    try{
+      const payload={user_id:sbSession.user.id,data:cloudSnapshot(),updated_at:new Date().toISOString()};
+      const rows=await sbJson(await sbApi('/rest/v1/'+SB_TABLE+'?on_conflict=user_id',{
+        method:'POST',body:payload,headers:{'Prefer':'resolution=merge-duplicates,return=representation'}
+      }));
+      const stamp=(rows&&rows[0]&&rows[0].updated_at)||payload.updated_at;
+      setCloudMeta({updatedAt:stamp,dirty:false});
+      setPill('ok','已同步');
+      return true;
+    }catch(e){
+      console.warn('[supabase] 上传失败',e);
+      setPill('err',e.status===401?'登录已过期':'同步失败');
+      if(e.status===401) refreshSession();
+      return false;
+    }
+  }
+
+  /* 返回 {status:'ok'|'empty'|'skipped'|'error'} */
+  async function pullState(opts){
+    opts=opts||{};
+    if(!cloudReady()) return {status:'error'};
+    try{
+      const rows=await sbJson(await sbApi('/rest/v1/'+SB_TABLE+'?select=data,updated_at&limit=1'));
+      if(!rows||!rows.length){ setPill('',sbSession.user.email||''); return {status:'empty'}; }
+      const row=rows[0];
+      const m=cloudMeta();
+      if(m.dirty) return {status:'skipped'};
+      if(!m.updatedAt&&localHasData()) return {status:'skipped'};
+      const remoteAt=row.updated_at?new Date(row.updated_at).getTime():0;
+      const localAt=m.updatedAt?new Date(m.updatedAt).getTime():0;
+      if(remoteAt>localAt){
+        state=normalize(row.data||{});
+        localStorage.setItem(KEY,JSON.stringify(state));
+        setCloudMeta({updatedAt:row.updated_at,dirty:false});
+        renderAll();
+        if(!opts.silent) showToast('已拉取云端最新数据');
+        setPill('ok','已同步');
+        return {status:'ok',adopted:true};
+      }
+      setCloudMeta({updatedAt:row.updated_at});
+      setPill('ok','已同步');
+      return {status:'ok',adopted:false};
+    }catch(e){
+      console.warn('[supabase] 拉取失败',e);
+      setPill('err',e.status===401?'登录已过期':'同步失败');
+      return {status:'error'};
+    }
+  }
+
+  function schedulePush(){
+    if(!cloudReady()) return;
+    clearTimeout(saveTimer);
+    setPill('saving','待同步');
+    saveTimer=setTimeout(()=>{ pushState(); },PUSH_DELAY);
+  }
+  function startPolling(){
+    clearInterval(pollTimer);
+    if(!cloudReady()) return;
+    pollTimer=setInterval(()=>{
+      if(document.visibilityState==='visible'&&!cloudMeta().dirty) pullState({silent:true});
+    },POLL_MS);
+  }
+  document.addEventListener('visibilitychange',()=>{
+    if(document.visibilityState==='visible'&&cloudReady()&&!cloudMeta().dirty) pullState({silent:true});
+  });
+
+  /* ===== 登录 / 设置面板 ===== */
+  const GATE_SECS=['secSetup','secAuth','secAccount'];
+  function showGate(mode){
+    gateMode=mode;
+    GATE_SECS.forEach(id=>{
+      const el=document.getElementById(id);
+      if(el) el.classList.toggle('show',id==='sec'+mode.charAt(0).toUpperCase()+mode.slice(1));
+    });
+    const u=document.getElementById('cfgUrl'), k=document.getElementById('cfgKey');
+    if(u&&dbCfg.url) u.value=dbCfg.url;
+    if(k&&dbCfg.key) k.value=dbCfg.key;
+    if(document.getElementById('accEmail')) document.getElementById('accEmail').textContent=(sbSession&&sbSession.user&&sbSession.user.email)||'-';
+    if(document.getElementById('accMsg')) document.getElementById('accMsg').textContent='';
+    document.getElementById('authGate').classList.add('show');
+  }
+  function hideGate(){ document.getElementById('authGate').classList.remove('show'); }
+  window.showGate=showGate;
+  window.hideGate=hideGate;
+
+  window.openAccount=function(){
+    if(cloudReady()) showGate('account');
+    else if(dbReady()) showGate('auth');
+    else showGate('setup');
+  };
+  window.useOffline=function(){
+    hideGate();
+    setPill('',dbReady()?'未登录 · 仅本机':'离线模式');
+  };
+  window.saveDbConfig=function(){
+    const u=document.getElementById('cfgUrl').value.trim().replace(/\/+$/,'');
+    const k=document.getElementById('cfgKey').value.trim();
+    const err=document.getElementById('cfgErr');
+    if(!/^https?:\/\/.+\..+/.test(u)){ err.textContent='Project URL 格式不对，应以 https:// 开头。'; return; }
+    if(k.length<40){ err.textContent='anon key 看起来不完整，请从 Supabase 控制台完整复制。'; return; }
+    err.textContent='';
+    dbCfg={url:u,key:k};
+    localStorage.setItem(CFG_KEY,JSON.stringify(dbCfg));
+    showToast('数据库配置已保存');
+    if(sbSession) afterLogin(); else showGate('auth');
+  };
+  function authBusy(on,which){
+    ['btnLogin','btnSignup'].forEach(id=>{
+      const b=document.getElementById(id);
+      if(b) b.disabled=!!on;
+    });
+    if(on&&which){
+      const b=document.getElementById(which);
+      if(b) b.textContent='请稍候…';
+    }
+    if(!on){
+      if(document.getElementById('btnLogin')) document.getElementById('btnLogin').textContent='登录';
+      if(document.getElementById('btnSignup')) document.getElementById('btnSignup').textContent='注册新账号';
+    }
+  }
+  function creds(){
+    const email=document.getElementById('authEmail').value.trim();
+    const pass=document.getElementById('authPass').value;
+    if(!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)){ document.getElementById('authErr').textContent='请输入正确的邮箱地址。'; return null; }
+    if(pass.length<6){ document.getElementById('authErr').textContent='密码至少 6 位。'; return null; }
+    document.getElementById('authErr').textContent='';
+    return {email,pass};
+  }
+  function authMsg(e){
+    const m=String((e&&e.message)||'');
+    if(/Invalid login credentials/i.test(m)) return '邮箱或密码不正确。';
+    if(/User already registered/i.test(m)) return '该邮箱已注册过，请直接点「登录」。';
+    if(/Password should be at least/i.test(m)) return '密码太短，请至少 6 位。';
+    if(/Email not confirmed/i.test(m)) return '邮箱还没确认：请到邮箱点确认链接后再登录。';
+    if(/invalid format|Unable to validate email/i.test(m)) return '邮箱格式不正确。';
+    if(/rate limit|too many/i.test(m)) return '操作太频繁，请稍后再试。';
+    if(/Failed to fetch|NetworkError|network/i.test(m)) return '连不上数据库，请检查 Project URL 与网络。';
+    if(/Invalid API key|No API key found|Invalid auth token/i.test(m)) return '密钥或 Project URL 不正确，请点下方「数据库设置」重新填写。';
+    return m||'操作失败，请稍后重试。';
+  }
+  window.doLogin=async function(){
+    const c=creds(); if(!c) return;
+    authBusy(true,'btnLogin');
+    try{
+      await sbSignIn(c.email,c.pass);
+      await afterLogin();
+    }catch(e){
+      document.getElementById('authErr').textContent=authMsg(e);
+    }finally{ authBusy(false); }
+  };
+  window.doSignup=async function(){
+    const c=creds(); if(!c) return;
+    authBusy(true,'btnSignup');
+    try{
+      const d=await sbSignUp(c.email,c.pass);
+      if(d&&d.access_token){ storeSession(d); await afterLogin(); }
+      else{
+        document.getElementById('authErr').textContent='注册成功，但该项目开启了邮箱验证。请到邮箱点击确认链接后再回到这里登录。';
+      }
+    }catch(e){
+      document.getElementById('authErr').textContent=authMsg(e);
+    }finally{ authBusy(false); }
+  };
+  window.doLogout=async function(){
+    await sbSignOut();
+    hideGate();
+    setPill('',dbReady()?'未登录 · 仅本机':'离线模式');
+    showToast('已退出登录');
+  };
+  window.syncNow=async function(){
+    if(!cloudReady()){ showGate('auth'); return; }
+    const msg=document.getElementById('accMsg');
+    msg.style.color='#94a3b8'; msg.textContent='同步中…';
+    const res=await pullState({silent:true});
+    if(res.status==='empty'||res.status==='skipped'){
+      setCloudMeta({dirty:true});
+      const ok=await pushState();
+      msg.style.color=ok?'#86efac':'#fda4af';
+      msg.textContent=ok?'已把本机数据上传到云端。':'同步失败，请检查网络或数据库配置。';
+    }else if(res.status==='ok'){
+      msg.style.color='#86efac';
+      msg.textContent=res.adopted?'已拉取云端最新数据。':'本机数据已是最新。';
+    }else{
+      msg.style.color='#fda4af';
+      msg.textContent='同步失败，请检查网络或数据库配置。';
+    }
+  };
+  async function afterLogin(){
+    hideGate();
+    setPill('saving','首次同步…');
+    const res=await pullState({silent:true});
+    if(res.status==='empty'||res.status==='skipped'){
+      setCloudMeta({dirty:true});
+      const ok=await pushState();
+      if(ok) showToast('本机数据已同步到云端');
+    }
+    if(!cloudReady()) setPill('err','登录失效');
+    startPolling();
+    renderAll();
+  }
 
   /* ===== 内置词书：行格式 分组|单词|词性|释义|同替或僻义(可省) ===== */
   const BUILTIN=[
@@ -667,16 +1098,12 @@
 
   function blank(){ return {days:{},streak:0,lastDone:null,essays:0,sentences:[],mocks:[],reviews:[],records:[],books:[],activeBook:'default',dailyCount:20,voc2:{},camb:{},weak:null}; }
 
-  function load(){
-    let s=null;
-    ['ielts_system_v4','ielts_system_v3','ielts_system_v2','ielts_system_v1'].some(k=>{
-      try{ const o=JSON.parse(localStorage.getItem(k)); if(o&&o.days){ s=o; return true; } }catch(e){}
-      return false;
-    });
-    if(!s) s=blank();
-    if(!s.books) s.books=[];
-    if(!s.voc2) s.voc2={};
-    if(!s.camb) s.camb={};
+  function normalize(s){
+    if(!s||typeof s!=='object') s=blank();
+    ['days','voc2','camb'].forEach(k=>{ if(!s[k]||typeof s[k]!=='object') s[k]={}; });
+    ['records','mocks','reviews','sentences','books'].forEach(k=>{ if(!Array.isArray(s[k])) s[k]=[]; });
+    if(typeof s.essays!=='number') s.essays=0;
+    if(typeof s.streak!=='number') s.streak=0;
     if(!s.dailyCount) s.dailyCount=20;
     if(!s.weak) s.weak=null;
     builtinBooks().forEach(b=>{ if(!s.books.find(x=>x.id===b.id)) s.books.push(b); });
@@ -684,8 +1111,20 @@
     if(!s.voc2[s.activeBook]) s.voc2[s.activeBook]={};
     return s;
   }
+  function load(){
+    let s=null;
+    ['ielts_system_v4','ielts_system_v3','ielts_system_v2','ielts_system_v1'].some(k=>{
+      try{ const o=JSON.parse(localStorage.getItem(k)); if(o&&o.days){ s=o; return true; } }catch(e){}
+      return false;
+    });
+    return normalize(s);
+  }
   let state=load();
-  function save(){ localStorage.setItem(KEY,JSON.stringify(state)); }
+  function save(){
+    localStorage.setItem(KEY,JSON.stringify(state));
+    setCloudMeta({dirty:true});
+    schedulePush();
+  }
 
   function ensureToday(){
     if(!state.days[today]) state.days[today]={tasks:JSON.parse(JSON.stringify(defaultTasks)),doneCount:0,totalMins:0};
@@ -1428,17 +1867,37 @@
     toastTimer=setTimeout(()=>t.classList.remove('show'),2200);
   }
   window.showToast=showToast;
-  window.resetAll=function(){
+  window.resetAll=async function(){
     if(!confirm('确定要清除所有数据吗？此操作不可恢复。'))return;
-    localStorage.removeItem(KEY);location.reload();
+    localStorage.removeItem(KEY);
+    localStorage.removeItem(META_KEY);
+    if(cloudReady()){
+      try{ await sbApi('/rest/v1/'+SB_TABLE+'?user_id=eq.'+encodeURIComponent(sbSession.user.id),{method:'DELETE'}); }catch(e){}
+    }
+    location.reload();
   };
 
-  state.books.forEach(b=>ensureVocId(b.id));save();
-  renderHeader();renderTasks();renderRecords();renderChecklist();renderSentences();
-  renderDailyStats();renderSkillBars();renderMocks();renderTrend();
-  renderWeak();buildCamList();renderCamMeta();renderCamSummary();
-  renderBookChips();renderVocStats();renderChips();renderBrowser();renderReviews();
-  updTimer();
+  function renderAll(){
+    renderHeader();renderTasks();renderRecords();renderChecklist();renderSentences();
+    renderDailyStats();renderSkillBars();renderMocks();renderTrend();
+    renderWeak();buildCamList();renderCamMeta();renderCamSummary();
+    renderBookChips();renderVocStats();renderChips();renderBrowser();renderReviews();
+    updTimer();
+  }
+
+  async function boot(){
+    state.books.forEach(b=>ensureVocId(b.id));
+    localStorage.setItem(KEY,JSON.stringify(state));
+    renderAll();
+    if(!dbReady()){ setPill('','未连接数据库'); showGate('setup'); return; }
+    if(!sbSession){ setPill('',sbSession?'':'未登录 · 仅本机'); showGate('auth'); return; }
+    setPill('saving','连接中…');
+    const valid=await refreshSession();
+    if(!valid&&!sbSession){ setPill('','登录已过期'); showGate('auth'); return; }
+    hideGate();
+    await afterLogin();
+  }
+  boot();
 })();
 </script>
 </body>
